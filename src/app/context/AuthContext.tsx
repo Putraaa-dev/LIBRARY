@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import type { AuthUser, UserRole } from '../types';
-import { DEFAULT_USERS } from '../data/mockData';
-import type { User } from '../types';
+import type { AuthUser } from '../types';
+
+const API_URL = '';
 
 interface AuthContextType {
   currentUser: AuthUser | null;
@@ -16,19 +16,12 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null);
 
 const STORAGE_KEY_AUTH = 'perpus_auth';
-const STORAGE_KEY_USERS = 'perpus_users';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Initialize users in localStorage if not exists
-    const storedUsers = localStorage.getItem(STORAGE_KEY_USERS);
-    if (!storedUsers) {
-      localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(DEFAULT_USERS));
-    }
-    // Restore auth session
     const storedAuth = localStorage.getItem(STORAGE_KEY_AUTH);
     if (storedAuth) {
       try {
@@ -42,49 +35,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; message: string }> => {
-    const storedUsers = localStorage.getItem(STORAGE_KEY_USERS);
-    const users: User[] = storedUsers ? JSON.parse(storedUsers) : DEFAULT_USERS;
-    const found = users.find(u => u.email === email && u.password === password);
-    if (!found) return { success: false, message: 'Email atau password salah.' };
-    if (found.status === 'inactive') return { success: false, message: 'Akun Anda dinonaktifkan. Hubungi administrator.' };
-    const authUser: AuthUser = {
-      id: found.id,
-      name: found.name,
-      email: found.email,
-      role: found.role,
-      phone: found.phone,
-      address: found.address,
-      memberSince: found.memberSince,
-      status: found.status,
-      avatar: found.avatar,
-      totalLoans: found.totalLoans,
-    };
-    setCurrentUser(authUser);
-    localStorage.setItem(STORAGE_KEY_AUTH, JSON.stringify(authUser));
-    return { success: true, message: `Selamat datang, ${found.name}!` };
+    try {
+      const res = await fetch(`${API_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { success: false, message: data.error || 'Login failed' };
+
+      const authUser: AuthUser = {
+        id: data.user._id || data.user.id,
+        name: data.user.name,
+        email: data.user.email,
+        role: data.user.role,
+        phone: data.user.phone || '',
+        address: data.user.address || '',
+        memberSince: data.user.memberSince,
+        status: data.user.status,
+        avatar: data.user.avatar,
+        totalLoans: data.user.totalLoans || 0,
+      };
+      setCurrentUser(authUser);
+      localStorage.setItem(STORAGE_KEY_AUTH, JSON.stringify(authUser));
+      return { success: true, message: data.message || `Selamat datang, ${authUser.name}!` };
+    } catch {
+      return { success: false, message: 'Gagal terhubung ke server.' };
+    }
   }, []);
 
   const register = useCallback(async (name: string, email: string, password: string, phone?: string): Promise<{ success: boolean; message: string }> => {
-    const storedUsers = localStorage.getItem(STORAGE_KEY_USERS);
-    const users: User[] = storedUsers ? JSON.parse(storedUsers) : DEFAULT_USERS;
-    if (users.find(u => u.email === email)) {
-      return { success: false, message: 'Email sudah terdaftar.' };
+    try {
+      const res = await fetch(`${API_URL}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, password, phone }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { success: false, message: data.error || 'Registration failed' };
+      return { success: true, message: data.message || 'Registrasi berhasil! Silakan login.' };
+    } catch {
+      return { success: false, message: 'Gagal terhubung ke server.' };
     }
-    const newUser: User = {
-      id: `u${Date.now()}`,
-      name,
-      email,
-      password,
-      role: 'user',
-      phone: phone || '',
-      address: '',
-      memberSince: new Date().toISOString().split('T')[0],
-      status: 'active',
-      totalLoans: 0,
-    };
-    const updatedUsers = [...users, newUser];
-    localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(updatedUsers));
-    return { success: true, message: 'Registrasi berhasil! Silakan login.' };
   }, []);
 
   const logout = useCallback(() => {
@@ -97,16 +89,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const updated = { ...currentUser, ...data };
     setCurrentUser(updated);
     localStorage.setItem(STORAGE_KEY_AUTH, JSON.stringify(updated));
-    // Also update in users list
-    const storedUsers = localStorage.getItem(STORAGE_KEY_USERS);
-    if (storedUsers) {
-      const users: User[] = JSON.parse(storedUsers);
-      const idx = users.findIndex(u => u.id === currentUser.id);
-      if (idx !== -1) {
-        users[idx] = { ...users[idx], ...data };
-        localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(users));
-      }
-    }
   }, [currentUser]);
 
   return (
